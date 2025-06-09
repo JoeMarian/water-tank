@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Water Tank Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full">
+
+<div class="flex h-screen p-4 space-x-4">
+
+  <!-- Left pane: Channel List -->
+  <div class="w-1/3 bg-white rounded shadow p-4 overflow-y-auto">
+    <h2 class="text-xl font-bold mb-4">Channels</h2>
+    <div id="channel-list" class="space-y-2"></div>
+  </div>
+
+  <!-- Middle pane: Channel details -->
+  <div id="channel-details" class="w-1/3 bg-white rounded shadow p-4 overflow-y-auto hidden flex-col">
+    <h2 id="channel-title" class="text-xl font-bold mb-4">Channel Details</h2>
+    <div id="fields-container" class="space-y-4"></div>
+    <div class="mt-4">
+      <button id="apply-changes-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50" disabled>
+        Apply Changes
+      </button>
+      <button id="close-details-btn" class="ml-2 bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded">
+        Close
+      </button>
+    </div>
+  </div>
+
+  <!-- Right pane: Create Channel -->
+  <div class="w-1/3 bg-white rounded shadow p-4">
+  <h2 class="text-xl font-bold mb-4">Create Channel</h2>
+  <form id="create-channel-form" class="space-y-4">
+    <div>
+      <label for="channel-name" class="block font-medium mb-1">Channel Name</label>
+      <input type="text" id="channel-name" name="channel_name" required
+             class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    </div>
+
+    <div id="fields-wrapper" class="space-y-2">
+      <!-- Dynamic field + value pairs -->
+    </div>
+
+    <button type="button" id="add-field-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded">
+      Add Field
+    </button>
+
+    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded block w-full mt-4">
+      Create Channel
+    </button>
+  </form>
+  <div id="create-result" class="mt-4 text-sm"></div>
+</div>
+</div>
+
+<!-- You only need to replace the entire <script> block in your existing HTML with this -->
+<script>
+  const apiBase = '/api';
+
+  const channelListEl = document.getElementById('channel-list');
+  const createForm = document.getElementById('create-channel-form');
+  const createResultEl = document.getElementById('create-result');
+  const channelDetailsEl = document.getElementById('channel-details');
+  const channelTitleEl = document.getElementById('channel-title');
+  const fieldsContainer = document.getElementById('fields-container');
+  const applyChangesBtn = document.getElementById('apply-changes-btn');
+  const closeDetailsBtn = document.getElementById('close-details-btn');
+  const addFieldBtn = document.getElementById('add-field-btn');
+  const fieldsWrapper = document.getElementById('fields-wrapper');
+
+  let currentChannel = null;
+  let editedFields = {};
+
+  function resetCreateFields() {
+    fieldsWrapper.innerHTML = '';
+    for (let i = 1; i <= 5; i++) {
+      addFieldInput();
+    }
+  }
+
+  function addFieldInput(name = '', value = '') {
+    const idx = fieldsWrapper.querySelectorAll('.field-pair').length + 1;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'field-pair grid grid-cols-2 gap-2';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.name = 'field_names';
+    nameInput.placeholder = `Field ${idx} Name`;
+    nameInput.value = name;
+    nameInput.required = true;
+    nameInput.className = 'border rounded px-2 py-1 w-full';
+
+    const valueInput = document.createElement('input');
+    valueInput.type = 'text';
+    valueInput.name = 'field_values';
+    valueInput.placeholder = `Field ${idx} Initial Value`;
+    valueInput.value = value;
+    valueInput.className = 'border rounded px-2 py-1 w-full';
+
+    wrapper.appendChild(nameInput);
+    wrapper.appendChild(valueInput);
+    fieldsWrapper.appendChild(wrapper);
+  }
+
+  resetCreateFields();
+
+  addFieldBtn.addEventListener('click', () => {
+    addFieldInput();
+  });
+
+  createForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    createResultEl.textContent = '';
+
+    const channel_name = document.getElementById('channel-name').value.trim();
+    const nameInputs = fieldsWrapper.querySelectorAll('input[name="field_names"]');
+    const valueInputs = fieldsWrapper.querySelectorAll('input[name="field_values"]');
+
+    const fields = [];
+    const values = [];
+
+    nameInputs.forEach((input, idx) => {
+      const fieldName = input.value.trim();
+      const fieldValue = valueInputs[idx].value.trim();
+
+      if (fieldName) {
+        fields.push(fieldName);
+        if (!isNaN(fieldValue) && fieldValue !== '') {
+          values.push(parseFloat(fieldValue));
+        } else {
+          values.push(fieldValue || null);
+        }
+      }
+    });
+
+    if (!channel_name || fields.length === 0) {
+      createResultEl.textContent = 'Channel name and at least one valid field are required.';
+      return;
+    }
+
+    try {
+      // Create channel
+      const res = await fetch(`${apiBase}/channels/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ channel_name, fields }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Channel creation failed: ${text}`);
+      }
+
+      const { api_key } = await res.json();
+
+      // Send initial values
+      const dataRes = await fetch(`${apiBase}/data/?channel_name=${encodeURIComponent(channel_name)}&api_key=${api_key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+
+      if (!dataRes.ok) {
+        throw new Error(`Initial value setting failed: ${await dataRes.text()}`);
+      }
+
+      createResultEl.textContent = `Channel "${channel_name}" created! API Key: ${api_key}`;
+      createForm.reset();
+      resetCreateFields();
+      fetchChannels();
+    } catch (err) {
+      createResultEl.textContent = err.message;
+    }
+  });
+
+  async function fetchChannels() {
+    try {
+      const res = await fetch(`${apiBase}/channels/`);
+      if (!res.ok) throw new Error('Failed to fetch channels');
+      const channels = await res.json();
+
+      channelListEl.innerHTML = '';
+      if (channels.length === 0) {
+        channelListEl.innerHTML = '<p>No channels found.</p>';
+        return;
+      }
+
+      channels.forEach(ch => {
+        const div = document.createElement('div');
+        div.className = 'border p-2 rounded flex justify-between items-center';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = ch.channel_name;
+        nameSpan.className = 'font-semibold';
+
+        const viewBtn = document.createElement('button');
+        viewBtn.textContent = 'View';
+        viewBtn.className = 'bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600';
+        viewBtn.onclick = () => promptApiKey(ch.channel_name, 'view');
+
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Delete';
+        delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 ml-2';
+        delBtn.onclick = () => promptApiKey(ch.channel_name, 'delete');
+
+        const btnContainer = document.createElement('div');
+        btnContainer.appendChild(viewBtn);
+        btnContainer.appendChild(delBtn);
+
+        div.appendChild(nameSpan);
+        div.appendChild(btnContainer);
+        channelListEl.appendChild(div);
+      });
+    } catch (err) {
+      channelListEl.innerHTML = `<p class="text-red-600">${err.message}</p>`;
+    }
+  }
+
+  function promptApiKey(channel_name, action) {
+    const api_key = prompt(`Enter API Key for channel "${channel_name}":`);
+    if (!api_key) return;
+
+    if (action === 'view') loadChannelDetails(channel_name, api_key);
+    else if (action === 'delete') deleteChannel(channel_name, api_key);
+  }
+
+  async function loadChannelDetails(channel_name, api_key) {
+    try {
+      channelDetailsEl.classList.remove('hidden');
+      channelTitleEl.textContent = `Channel: ${channel_name}`;
+      fieldsContainer.innerHTML = '<p>Loading...</p>';
+      applyChangesBtn.disabled = true;
+      editedFields = {};
+      currentChannel = null;
+
+      const chRes = await fetch(`${apiBase}/channels/${channel_name}?api_key=${api_key}`);
+      if (!chRes.ok) throw new Error(await chRes.text());
+      const channel = await chRes.json();
+
+      const dataRes = await fetch(`${apiBase}/data/${channel_name}?api_key=${api_key}`);
+      if (!dataRes.ok) throw new Error(await dataRes.text());
+      const latestData = await dataRes.json();
+
+      currentChannel = { channel_name, api_key, fields: channel.fields, data: latestData };
+      renderFields();
+    } catch (err) {
+      alert(err.message);
+      closeChannelDetails();
+    }
+  }
+
+  function renderFields() {
+    fieldsContainer.innerHTML = '';
+    if (!currentChannel) return;
+
+    currentChannel.fields.forEach(field => {
+      const value = currentChannel.data[field] ?? '';
+
+      const fieldDiv = document.createElement('div');
+      fieldDiv.className = 'flex items-center space-x-2';
+
+      const label = document.createElement('label');
+      label.textContent = field;
+      label.className = 'w-24 font-medium';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = value;
+      input.className = 'flex-1 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500';
+      input.oninput = () => {
+        editedFields[field] = input.value;
+        applyChangesBtn.disabled = false;
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Delete Value';
+      delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-sm';
+      delBtn.onclick = () => {
+        input.value = '';
+        editedFields[field] = '';
+        applyChangesBtn.disabled = false;
+      };
+
+      fieldDiv.appendChild(label);
+      fieldDiv.appendChild(input);
+      fieldDiv.appendChild(delBtn);
+
+      fieldsContainer.appendChild(fieldDiv);
+    });
+  }
+
+  applyChangesBtn.onclick = async () => {
+    if (!currentChannel) return;
+    try {
+      applyChangesBtn.disabled = true;
+
+      const values = currentChannel.fields.map(field => {
+        const val = editedFields.hasOwnProperty(field) ? editedFields[field] : currentChannel.data[field];
+        return val === '' ? null : (isNaN(val) ? val : parseFloat(val));
+      });
+
+      const url = `${apiBase}/data/?channel_name=${encodeURIComponent(currentChannel.channel_name)}&api_key=${currentChannel.api_key}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(values),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+      alert('Data updated!');
+      editedFields = {};
+      applyChangesBtn.disabled = true;
+      loadChannelDetails(currentChannel.channel_name, currentChannel.api_key);
+    } catch (err) {
+      alert(err.message);
+      applyChangesBtn.disabled = false;
+    }
+  };
+
+  closeDetailsBtn.onclick = closeChannelDetails;
+
+  function closeChannelDetails() {
+    channelDetailsEl.classList.add('hidden');
+    currentChannel = null;
+    fieldsContainer.innerHTML = '';
+    editedFields = {};
+    applyChangesBtn.disabled = true;
+  }
+
+  async function deleteChannel(channel_name, api_key) {
+    if (!confirm(`Delete channel "${channel_name}"?`)) return;
+    try {
+      const res = await fetch(`${apiBase}/channels/${channel_name}`, {
+        method: 'DELETE',
+        headers: {'x-api-key': api_key}
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      alert(`Deleted channel "${channel_name}".`);
+      fetchChannels();
+      if (currentChannel?.channel_name === channel_name) closeChannelDetails();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  fetchChannels();
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+motor  # async MongoDB driver
+uuid
+gunicorn
+paho-mqtt
+httpx
+aiocoap

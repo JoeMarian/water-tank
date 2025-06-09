@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Water Tank Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Ensure canvas elements have a defined height within their flex containers */
+    canvas {
+      width: 100% !important; /* Override Chart.js default inline styles */
+      height: 250px !important; /* Explicit height for charts */
+    }
+    /* Styles for full-screen chart view */
+    .chart-full-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(255, 255, 255, 0.95); /* Semi-transparent background */
+      z-index: 1000; /* Ensure it's on top */
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    /* Styles for the canvas inside the full-screen container */
+    .chart-full-screen canvas {
+      height: 90vh !important; /* Take up most of the viewport height */
+      width: 90vw !important; /* Take up most of the viewport width */
+      max-width: 1200px; /* Optional: limit max size */
+      max-height: 800px; /* Optional: limit max size */
+    }
+    .chart-full-screen .close-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: #ef4444; /* Red-500 */
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+      z-index: 1001;
+    }
+  </style>
+</head>
+<body class="h-full">
+
+<div id="main-container" class="flex flex-col lg:flex-row h-screen p-4 space-y-4 lg:space-y-0 lg:space-x-4">
+
+  <div id="channel-list-pane" class="w-full lg:w-1/3 bg-white rounded shadow p-4 overflow-y-auto">
+    <h2 class="text-xl font-bold mb-4">Channels</h2>
+    <div id="channel-list" class="space-y-2"></div>
+  </div>
+
+  <div id="channel-details" class="w-full lg:w-1/3 bg-white rounded shadow p-4 overflow-y-auto hidden flex-col">
+    <h2 id="channel-title" class="text-xl font-bold mb-4">Channel Details</h2>
+
+    <div class="mb-4">
+      <h3 class="text-lg font-semibold mb-2">Latest Data</h3>
+      <div id="latest-data-container" class="space-y-2">
+        </div>
+      <div class="mt-4 flex items-center">
+        <button id="apply-changes-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50">
+          Record New Data
+        </button>
+        <button id="refresh-data-btn" class="ml-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded">
+          Refresh Data
+        </button>
+        <button id="close-details-btn" class="ml-auto bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded">
+          Close
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-6 flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+      <div class="md:w-1/2 bg-gray-50 rounded p-2 flex flex-col">
+        <div class="flex justify-between items-center mb-2">
+            <h3 class="text-lg font-semibold">Chart 1 (Line Chart)</h3>
+            <button class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-sm" onclick="toggleChartFullScreen('myChart1', historicalChartCanvas1, 'line')">
+                Full Screen
+            </button>
+        </div>
+        <div class="mb-2">
+          <label for="chart-field-select-1" class="block text-sm font-medium text-gray-700">Select Field:</label>
+          <select id="chart-field-select-1" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+            </select>
+        </div>
+        <div class="flex-grow"> <canvas id="historicalChart1"></canvas>
+        </div>
+      </div>
+
+      <div class="md:w-1/2 bg-gray-50 rounded p-2 flex flex-col">
+        <div class="flex justify-between items-center mb-2">
+            <h3 class="text-lg font-semibold">Chart 2 (Bar Chart)</h3>
+            <button class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded text-sm" onclick="toggleChartFullScreen('myChart2', historicalChartCanvas2, 'bar')">
+                Full Screen
+            </button>
+        </div>
+        <div class="mb-2">
+          <label for="chart-field-select-2" class="block text-sm font-medium text-gray-700">Select Field:</label>
+          <select id="chart-field-select-2" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+            </select>
+        </div>
+        <div class="flex-grow"> <canvas id="historicalChart2"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 bg-gray-50 rounded shadow p-4">
+        <h3 class="text-lg font-semibold mb-2">Statistics for <span id="stats-field-name" class="text-blue-700"></span></h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white p-3 rounded shadow-sm">
+                <p class="text-sm text-gray-500">Min Value</p>
+                <p id="stat-min" class="text-xl font-bold text-gray-800">N/A</p>
+            </div>
+            <div class="bg-white p-3 rounded shadow-sm">
+                <p class="text-sm text-gray-500">Max Value</p>
+                <p id="stat-max" class="text-xl font-bold text-gray-800">N/A</p>
+            </div>
+            <div class="bg-white p-3 rounded shadow-sm">
+                <p class="text-sm text-gray-500">Average Value</p>
+                <p id="stat-avg" class="text-xl font-bold text-gray-800">N/A</p>
+            </div>
+        </div>
+    </div>
+
+  </div>
+
+  <div id="create-channel-pane" class="w-full lg:w-1/3 bg-white rounded shadow p-4">
+    <h2 class="text-xl font-bold mb-4">Create Channel</h2>
+    <form id="create-channel-form" class="space-y-4">
+      <div>
+        <label for="channel-name" class="block font-medium mb-1">Channel Name</label>
+        <input type="text" id="channel-name" name="channel_name" required
+               class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      <div id="fields-wrapper" class="space-y-2">
+        </div>
+
+      <button type="button" id="add-field-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded">
+        Add Field
+      </button>
+
+      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded block w-full mt-4">
+        Create Channel
+      </button>
+    </form>
+    <div id="create-result" class="mt-4 text-sm"></div>
+  </div>
+</div>
+
+<script>
+  const apiBase = '/api';
+
+  const mainContainer = document.getElementById('main-container');
+  const channelListPane = document.getElementById('channel-list-pane');
+  const createChannelPane = document.getElementById('create-channel-pane');
+
+  const channelListEl = document.getElementById('channel-list');
+  const createForm = document.getElementById('create-channel-form');
+  const createResultEl = document.getElementById('create-result');
+  const channelDetailsEl = document.getElementById('channel-details');
+  const channelTitleEl = document.getElementById('channel-title');
+  const latestDataContainer = document.getElementById('latest-data-container');
+  const applyChangesBtn = document.getElementById('apply-changes-btn');
+  const refreshDataBtn = document.getElementById('refresh-data-btn'); // New refresh button
+  const closeDetailsBtn = document.getElementById('close-details-btn');
+  const addFieldBtn = document.getElementById('add-field-btn');
+  const fieldsWrapper = document.getElementById('fields-wrapper');
+
+  // Chart elements
+  const chartFieldSelect1 = document.getElementById('chart-field-select-1');
+  const historicalChartCanvas1 = document.getElementById('historicalChart1');
+  const chartFieldSelect2 = document.getElementById('chart-field-select-2');
+  const historicalChartCanvas2 = document.getElementById('historicalChart2');
+
+  // Statistics elements
+  const statsFieldName = document.getElementById('stats-field-name');
+  const statMin = document.getElementById('stat-min');
+  const statMax = document.getElementById('stat-max');
+  const statAvg = document.getElementById('stat-avg');
+
+  let currentChannel = null;
+  let editedFields = {};
+  let myChart1 = null; // To hold the first Chart.js instance
+  let myChart2 = null; // To hold the second Chart.js instance
+  let historicalChannelData = []; // To store all historical data for the selected channel
+  let refreshIntervalId = null; // To store the interval ID for auto-refresh
+
+  // Function to format timestamps to IST
+  function formatTimestampIST(utcTimestamp) {
+    if (!utcTimestamp) return 'N/A';
+    const date = new Date(utcTimestamp); // This creates a Date object based on the ISO string (UTC)
+
+    // IST offset in milliseconds (5 hours 30 minutes)
+    const istOffsetMillis = (5.5 * 60 * 60 * 1000);
+
+    // Apply offset to the UTC milliseconds to get IST milliseconds
+    const istMillis = date.getTime() + istOffsetMillis;
+    const istDate = new Date(istMillis); // Create a new Date object representing the time in IST
+
+    // Now format this IST date object using a generic locale, as the timezone is already applied
+    return istDate.toLocaleString('en-US', { // Using en-US for consistent formatting, timezone is already handled
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true // Use 12-hour format with AM/PM
+    });
+  }
+
+  // Initialize with 2 empty fields for channel creation
+  function resetCreateFields() {
+    fieldsWrapper.innerHTML = '';
+    for (let i = 1; i <= 2; i++) addFieldRow();
+  }
+
+  function addFieldRow() {
+    const div = document.createElement('div');
+    div.className = 'flex space-x-2';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Field name';
+    nameInput.className = 'w-1/2 border border-gray-300 rounded px-2 py-1';
+
+    const valueInput = document.createElement('input');
+    valueInput.type = 'text';
+    valueInput.placeholder = 'Initial value (optional)';
+    valueInput.className = 'w-1/2 border border-gray-300 rounded px-2 py-1';
+
+    div.appendChild(nameInput);
+    div.appendChild(valueInput);
+
+    fieldsWrapper.appendChild(div);
+  }
+
+  resetCreateFields();
+  addFieldBtn.addEventListener('click', () => addFieldRow());
+
+  createForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    createResultEl.textContent = '';
+
+    const channel_name = document.getElementById('channel-name').value.trim();
+    if (!channel_name) {
+      createResultEl.textContent = 'Channel name is required.';
+      return;
+    }
+
+    const fieldPairs = fieldsWrapper.querySelectorAll('div');
+
+    const fields = [];
+    const initial_values = {};
+
+    fieldPairs.forEach(row => {
+      const inputs = row.querySelectorAll('input');
+      const nameInput = inputs[0];
+      const valueInput = inputs[1];
+
+      const name = nameInput.value.trim();
+      const value = valueInput.value.trim();
+
+      if (name) {
+        fields.push(name);
+        if (value) {
+          initial_values[name] = value;
+        }
+      }
+    });
+
+    if (fields.length === 0) {
+      createResultEl.textContent = 'At least one field name is required.';
+      return;
+    }
+
+    try {
+      const res = await fetch(`${apiBase}/channels/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          channel_name: channel_name,
+          fields: fields,
+          initial_values: Object.keys(initial_values).length > 0 ? initial_values : undefined
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Channel creation failed: ${errorText}`);
+      }
+
+      const data = await res.json();
+      const domain = window.location.origin; // Get current domain
+      const sampleQueryString = fields.map(field => `${field}=VALUE`).join('&');
+      const sampleUrl = `${domain}${apiBase}/channels/${encodeURIComponent(data.channel_name)}/update?api_key=${data.api_key}${sampleQueryString ? '&' + sampleQueryString : ''}`;
+
+      createResultEl.innerHTML = `
+        <p class="font-bold text-green-700">Channel created successfully!</p>
+        <p class="mt-2 text-sm text-gray-700">
+            **API Key:** <code class="bg-gray-100 p-1 rounded font-mono break-all">${data.api_key}</code><br>
+        </p>
+        <p class="mt-2 text-xs text-gray-600">
+            **Sample Data Write URL (GET request for IoT devices):**
+            <code class="block bg-gray-100 p-1 rounded mt-1 break-all">
+                ${sampleUrl}
+            </code>
+            (Replace VALUE with your data. For fields with spaces, URL-encode them. Example: \`tank%201\` for \`tank 1\`)
+        </p>
+        <p class="mt-2 text-xs text-gray-600">
+            **Alternative (for JSON body POST request):**
+            <code class="block bg-gray-100 p-1 rounded mt-1 break-all">
+                curl -X POST -H "Content-Type: application/json" \\<br>
+                -d '{"field1": 12.3, "field2": "abc"}' \\<br>
+                "${domain}${apiBase}/channels/${encodeURIComponent(data.channel_name)}/data?api_key=${data.api_key}"
+            </code>
+        </p>
+      `;
+
+      createForm.reset();
+      resetCreateFields();
+      fetchChannels();
+    } catch (err) {
+      createResultEl.textContent = err.message;
+    }
+  });
+
+
+  async function fetchChannels() {
+    try {
+      const res = await fetch(`${apiBase}/channels/`);
+      if (!res.ok) throw new Error('Failed to fetch channels');
+      const channels = await res.json();
+
+      channelListEl.innerHTML = '';
+      if (channels.length === 0) {
+        channelListEl.innerHTML = '<p>No channels found.</p>';
+        return;
+      }
+
+      channels.forEach(ch => {
+        const div = document.createElement('div');
+        div.className = 'border p-2 rounded flex justify-between items-center';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = ch.channel_name;
+        nameSpan.className = 'font-semibold';
+
+        const viewBtn = document.createElement('button');
+        viewBtn.textContent = 'View';
+        viewBtn.className = 'bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600';
+        viewBtn.onclick = () => promptApiKey(ch.channel_name, 'view');
+
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Delete';
+        delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 ml-2';
+        delBtn.onclick = () => promptApiKey(ch.channel_name, 'delete');
+
+        const btnContainer = document.createElement('div');
+        btnContainer.appendChild(viewBtn);
+        btnContainer.appendChild(delBtn);
+
+        div.appendChild(nameSpan);
+        div.appendChild(btnContainer);
+        channelListEl.appendChild(div);
+      });
+    } catch (err) {
+      channelListEl.innerHTML = `<p class="text-red-600">${err.message}</p>`;
+    }
+  }
+
+  function promptApiKey(channel_name, action) {
+    const api_key = prompt(`Enter API Key for channel "${channel_name}":`);
+    if (!api_key) return;
+
+    if (action === 'view') {
+        loadChannelDetails(channel_name, api_key);
+        // Start auto-refresh when channel details are loaded
+        if (refreshIntervalId) clearInterval(refreshIntervalId); // Clear any existing interval
+        refreshIntervalId = setInterval(() => {
+            console.log("Auto-refreshing data...");
+            // Only auto-refresh if a channel is currently selected
+            if (currentChannel && currentChannel.channel_name === channel_name) {
+                // Check if any full-screen chart is active. If so, don't auto-refresh the main view.
+                const fullScreenDiv = document.getElementById('full-screen-chart-container');
+                if (fullScreenDiv && fullScreenDiv.classList.contains('active')) {
+                    // If full screen is active, just re-render the full-screen chart (if it exists)
+                    // This assumes only one chart can be full-screen at a time
+                    if (fullScreenDiv.querySelector('#tempFullScreenChart')) {
+                         // Find the chart type and data from the global Chart.js instances (myChart1/myChart2)
+                         // assuming they hold the current configuration
+                        const currentChartId = fullScreenDiv.querySelector('#tempFullScreenChart').chart.id;
+                        let sourceChartInstance;
+                        let chartType;
+
+                        if (myChart1 && myChart1.id === currentChartId) {
+                            sourceChartInstance = myChart1;
+                            chartType = 'line';
+                        } else if (myChart2 && myChart2.id === currentChartId) {
+                            sourceChartInstance = myChart2;
+                            chartType = 'bar';
+                        }
+                        // If we can identify the source chart, re-render it in full screen
+                        if (sourceChartInstance) {
+                             // This will re-fetch historical data and then re-render the chart
+                            loadChannelDetails(currentChannel.channel_name, currentChannel.api_key, false)
+                                .then(() => {
+                                    // After data is loaded, find the full-screen canvas and re-render the chart on it
+                                    const tempFullScreenCanvas = document.getElementById('tempFullScreenChart');
+                                    if(tempFullScreenCanvas) {
+                                        const ctxFullScreen = tempFullScreenCanvas.getContext('2d');
+                                        // Destroy the old full-screen chart instance if it exists
+                                        if (tempFullScreenCanvas.chart) tempFullScreenCanvas.chart.destroy();
+
+                                        new Chart(ctxFullScreen, {
+                                            type: chartType,
+                                            data: {
+                                                labels: historicalChannelData.map(entry => formatTimestampIST(entry.timestamp)),
+                                                datasets: [{
+                                                    label: sourceChartInstance.data.datasets[0].label,
+                                                    data: historicalChannelData.map(entry => isNaN(parseFloat(entry[sourceChartInstance.data.datasets[0].label])) ? null : parseFloat(entry[sourceChartInstance.data.datasets[0].label])),
+                                                    backgroundColor: chartType === 'bar' ? 'rgba(255, 99, 132, 0.5)' : 'rgb(75, 192, 192)',
+                                                    borderColor: chartType === 'bar' ? 'rgb(255, 99, 132)' : 'rgb(75, 192, 192)',
+                                                    tension: chartType === 'line' ? 0.1 : 0,
+                                                    fill: false
+                                                }]
+                                            },
+                                            options: sourceChartInstance.options
+                                        });
+                                    }
+                                });
+                        }
+                    }
+                } else {
+                    // Not in full screen, proceed with normal refresh
+                    loadChannelDetails(currentChannel.channel_name, currentChannel.api_key, false);
+                }
+            } else {
+                // If the channel was closed, stop the interval
+                clearInterval(refreshIntervalId);
+                refreshIntervalId = null;
+            }
+        }, 60 * 1000); // Every 1 minute (60,000 milliseconds)
+    }
+    else if (action === 'delete') deleteChannel(channel_name, api_key);
+  }
+
+  async function loadChannelDetails(channel_name, api_key, showLoading = true) {
+    try {
+      if (showLoading) { // Only show loading state if it's the initial load or a manual refresh
+          channelDetailsEl.classList.remove('hidden');
+          channelTitleEl.textContent = `Channel: ${channel_name}`;
+          latestDataContainer.innerHTML = '<p>Loading...</p>';
+          applyChangesBtn.disabled = true;
+          editedFields = {};
+          // Only reset currentChannel and historicalData on initial load or manual refresh
+          currentChannel = null; // Set to null temporarily to avoid partial updates
+          historicalChannelData = [];
+      }
+
+      // Fetch channel details
+      const chRes = await fetch(`${apiBase}/channels/${channel_name}?api_key=${api_key}`);
+      if (!chRes.ok) throw new Error(`Failed to fetch channel details: ${await chRes.text()}`);
+      const channel = await chRes.json();
+
+      // Fetch latest data
+      let latestData;
+      const latestDataRes = await fetch(`${apiBase}/data/${channel_name}/latest?api_key=${api_key}`);
+      if (!latestDataRes.ok) {
+          // If no latest data, that's okay, we can proceed without it
+          console.warn(`No latest data found for ${channel_name}, or API key is invalid.`);
+          // Create a mock latestData object with "N/A" for all fields
+          const mockLatestData = {
+              tank_id: channel_name,
+              timestamp: new Date().toISOString() // Current time for mock timestamp
+          };
+          channel.fields.forEach(field => {
+              mockLatestData[field] = "N/A";
+          });
+          latestData = mockLatestData;
+      } else {
+          latestData = await latestDataRes.json();
+      }
+
+
+      // Fetch historical data
+      const historicalDataRes = await fetch(`${apiBase}/channels/${channel_name}/data?api_key=${api_key}`); // Fetch up to 500 records
+      if (!historicalDataRes.ok) throw new Error(`Failed to fetch historical data: ${await historicalDataRes.text()}`);
+      historicalChannelData = await historicalDataRes.json();
+
+      currentChannel = { channel_name, api_key, fields: channel.fields, latestData: latestData };
+      renderLatestDataFields();
+      renderChartControls();
+      
+      // Render charts if not in full screen (full screen has its own rendering)
+      const fullScreenDiv = document.getElementById('full-screen-chart-container');
+      if (!fullScreenDiv || !fullScreenDiv.classList.contains('active')) {
+          if (currentChannel.fields.length > 0) {
+            // Only update select if not already set or if fields have changed
+            if (chartFieldSelect1.value === "" || !currentChannel.fields.includes(chartFieldSelect1.value)) {
+                chartFieldSelect1.value = currentChannel.fields[0];
+            }
+            renderChart(myChart1, historicalChartCanvas1, chartFieldSelect1.value, 'line', 'myChart1');
+            renderStats(chartFieldSelect1.value); // Render stats for the first chart's field
+
+            if (chartFieldSelect2.value === "" || !currentChannel.fields.includes(chartFieldSelect2.value)) {
+                // Set chart 2 to the second field if available, otherwise default to first
+                if (currentChannel.fields.length > 1) {
+                  chartFieldSelect2.value = currentChannel.fields[1];
+                } else {
+                  chartFieldSelect2.value = currentChannel.fields[0];
+                }
+            }
+            renderChart(myChart2, historicalChartCanvas2, chartFieldSelect2.value, 'bar', 'myChart2');
+
+          } else {
+            // No fields, clear charts and stats
+            renderChart(myChart1, historicalChartCanvas1, null, 'line', 'myChart1');
+            renderChart(myChart2, historicalChartCanvas2, null, 'bar', 'myChart2');
+            renderStats(null);
+          }
+      }
+
+    } catch (err) {
+      alert(err.message);
+      closeChannelDetails();
+    }
+  }
+
+  function renderLatestDataFields() {
+    latestDataContainer.innerHTML = '';
+    if (!currentChannel) return;
+
+    currentChannel.fields.forEach(field => {
+      const value = currentChannel.latestData[field] ?? 'N/A';
+      const timestamp = currentChannel.latestData.timestamp ? formatTimestampIST(currentChannel.latestData.timestamp) : 'N/A';
+
+      const fieldDiv = document.createElement('div');
+      fieldDiv.className = 'flex items-center space-x-2';
+
+      const label = document.createElement('label');
+      label.textContent = field;
+      label.className = 'w-24 font-medium';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = value;
+      input.className = 'flex-1 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500';
+      // Add a data attribute to link input to field
+      input.setAttribute('data-field', field);
+      input.oninput = () => {
+        editedFields[field] = input.value;
+        applyChangesBtn.disabled = false;
+      };
+
+      const timestampSpan = document.createElement('span');
+      timestampSpan.className = 'text-xs text-gray-500 ml-2';
+      timestampSpan.textContent = `(Last updated: ${timestamp})`;
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Clear Value';
+      delBtn.className = 'bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-sm';
+      delBtn.onclick = () => {
+        input.value = '';
+        editedFields[field] = '';
+        applyChangesBtn.disabled = false;
+      };
+
+      fieldDiv.appendChild(label);
+      fieldDiv.appendChild(input);
+      fieldDiv.appendChild(delBtn);
+      fieldDiv.appendChild(timestampSpan);
+
+      latestDataContainer.appendChild(fieldDiv);
+    });
+  }
+
+  function renderChartControls() {
+    [chartFieldSelect1, chartFieldSelect2].forEach(selectEl => {
+      selectEl.innerHTML = ''; // Clear previous options
+      if (!currentChannel || currentChannel.fields.length === 0) {
+        const option = document.createElement('option');
+        option.textContent = 'No fields available';
+        option.value = '';
+        selectEl.appendChild(option);
+        selectEl.disabled = true;
+        return;
+      }
+
+      currentChannel.fields.forEach(field => {
+        const option = document.createElement('option');
+        option.value = field;
+        option.textContent = field;
+        selectEl.appendChild(option);
+      });
+      selectEl.disabled = false;
+    });
+
+    chartFieldSelect1.onchange = () => {
+      renderChart(myChart1, historicalChartCanvas1, chartFieldSelect1.value, 'line', 'myChart1');
+      renderStats(chartFieldSelect1.value); // Update stats for chart 1's field
+    };
+    chartFieldSelect2.onchange = () => renderChart(myChart2, historicalChartCanvas2, chartFieldSelect2.value, 'bar', 'myChart2');
+  }
+
+  function renderChart(chartInstance, canvasElement, selectedField, chartType, chartName) {
+    if (chartInstance) {
+      chartInstance.destroy(); // Destroy existing chart instance
+    }
+
+    if (!selectedField || historicalChannelData.length === 0) {
+      const ctx = canvasElement.getContext('2d');
+      ctx.clearRect(0, 0, canvasElement.width, canvasElement.height); // Clear canvas
+      return;
+    }
+
+    const labels = historicalChannelData.map(entry => {
+      if (entry.timestamp) {
+        return formatTimestampIST(entry.timestamp); // Format to IST
+      }
+      return 'N/A';
+    });
+
+    const dataValues = historicalChannelData.map(entry => {
+      const value = entry[selectedField];
+      return isNaN(parseFloat(value)) ? null : parseFloat(value);
+    });
+
+    const ctx = canvasElement.getContext('2d');
+    chartInstance = new Chart(ctx, {
+      type: chartType, // Use the passed chartType
+      data: {
+        labels: labels,
+        datasets: [{
+          label: selectedField,
+          data: dataValues,
+          backgroundColor: chartType === 'bar' ? 'rgba(255, 99, 132, 0.5)' : 'rgb(75, 192, 192)', // Different colors for bar chart
+          borderColor: chartType === 'bar' ? 'rgb(255, 99, 132)' : 'rgb(75, 192, 192)',
+          tension: chartType === 'line' ? 0.1 : 0, // Tension only for line charts
+          fill: false // Only fill for line charts if desired
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false, // Allow canvas to resize freely
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Time (IST)' // Indicate IST
+            },
+            // Ensure labels are visible and don't overlap
+            ticks: {
+                autoSkip: true,
+                maxRotation: 45,
+                minRotation: 45
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Value'
+            },
+            beginAtZero: true // Start y-axis from zero for better comparison
+          }
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              title: function(context) {
+                return `Time: ${context[0].label}`;
+              },
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) {
+                  label += ': ';
+                }
+                if (context.parsed.y !== null) {
+                  label += context.parsed.y;
+                }
+                return label;
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Assign to global variable
+    if (chartName === 'myChart1') myChart1 = chartInstance;
+    else if (chartName === 'myChart2') myChart2 = chartInstance;
+  }
+
+  function renderStats(selectedField) {
+    statsFieldName.textContent = selectedField || 'N/A';
+    statMin.textContent = 'N/A';
+    statMax.textContent = 'N/A';
+    statAvg.textContent = 'N/A';
+
+    if (!selectedField || historicalChannelData.length === 0) {
+        return;
+    }
+
+    const numericalValues = historicalChannelData
+        .map(entry => {
+            const value = entry[selectedField];
+            return isNaN(parseFloat(value)) ? null : parseFloat(value);
+        })
+        .filter(value => value !== null); // Filter out nulls (non-numeric values)
+
+    if (numericalValues.length > 0) {
+        const minVal = Math.min(...numericalValues);
+        const maxVal = Math.max(...numericalValues);
+        const sumVal = numericalValues.reduce((sum, val) => sum + val, 0);
+        const avgVal = sumVal / numericalValues.length;
+
+        statMin.textContent = minVal.toFixed(2);
+        statMax.textContent = maxVal.toFixed(2);
+        statAvg.textContent = avgVal.toFixed(2);
+    }
+  }
+
+
+  applyChangesBtn.onclick = async () => {
+    if (!currentChannel) return;
+    try {
+      applyChangesBtn.disabled = true;
+
+      const newDataEntry = {};
+      currentChannel.fields.forEach(field => {
+        const inputElement = latestDataContainer.querySelector(`input[data-field="${field}"]`);
+        const inputValue = inputElement ? inputElement.value : '';
+
+        const valueToUse = editedFields.hasOwnProperty(field) ? editedFields[field] : inputValue;
+
+        if (valueToUse === '' || valueToUse === null) {
+          newDataEntry[field] = "N/A";
+        } else if (!isNaN(parseFloat(valueToUse))) {
+          newDataEntry[field] = parseFloat(valueToUse);
+        } else {
+          newDataEntry[field] = valueToUse;
+        }
+      });
+
+      const url = `${apiBase}/channels/${encodeURIComponent(currentChannel.channel_name)}/data?api_key=${currentChannel.api_key}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(newDataEntry)
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to record new data: ${errorText}`);
+      }
+      alert('New data recorded successfully!');
+      editedFields = {};
+      applyChangesBtn.disabled = false;
+      loadChannelDetails(currentChannel.channel_name, currentChannel.api_key); // Re-load to show new data
+    } catch (err) {
+      alert(err.message);
+      applyChangesBtn.disabled = false;
+    }
+  };
+
+  // Manual refresh button handler
+  refreshDataBtn.onclick = () => {
+      if (currentChannel) {
+          console.log("Manual refresh triggered.");
+          loadChannelDetails(currentChannel.channel_name, currentChannel.api_key, true); // True to show loading state
+      }
+  };
+
+  closeDetailsBtn.onclick = closeChannelDetails;
+
+  function closeChannelDetails() {
+    channelDetailsEl.classList.add('hidden');
+    currentChannel = null;
+    latestDataContainer.innerHTML = '';
+    editedFields = {};
+    applyChangesBtn.disabled = true;
+    if (myChart1) { myChart1.destroy(); myChart1 = null; }
+    if (myChart2) { myChart2.destroy(); myChart2 = null; }
+    historicalChannelData = [];
+    
+    // Clear auto-refresh interval
+    if (refreshIntervalId) {
+        clearInterval(refreshIntervalId);
+        refreshIntervalId = null;
+    }
+  }
+
+  // Full screen toggle for individual charts
+  function toggleChartFullScreen(chartInstanceName, canvasElement, chartType) {
+    let chartInstance;
+    let selectedField;
+
+    // Determine which chart instance we're dealing with
+    if (chartInstanceName === 'myChart1') {
+        chartInstance = myChart1;
+        selectedField = chartFieldSelect1.value;
+    } else if (chartInstanceName === 'myChart2') {
+        chartInstance = myChart2;
+        selectedField = chartFieldSelect2.value;
+    }
+
+    if (!chartInstance) { // If chart hasn't been initialized yet
+        alert("Chart data not yet loaded or no field selected.");
+        return;
+    }
+
+    const body = document.body;
+    let fullScreenDiv = document.getElementById('full-screen-chart-container');
+
+    if (!fullScreenDiv) {
+        // Create the full screen container if it doesn't exist
+        fullScreenDiv = document.createElement('div');
+        fullScreenDiv.id = 'full-screen-chart-container';
+        fullScreenDiv.className = 'chart-full-screen'; // This class provides flex layout and sizing
+        body.appendChild(fullScreenDiv);
+    }
+
+    // Always ensure the close button exists within the fullScreenDiv context
+    let closeBtn = fullScreenDiv.querySelector('.close-btn');
+    if (!closeBtn) {
+        closeBtn = document.createElement('button');
+        closeBtn.className = 'close-btn';
+        closeBtn.textContent = 'Close';
+        fullScreenDiv.appendChild(closeBtn);
+    }
+
+    closeBtn.onclick = () => {
+        body.style.overflow = ''; // Restore scroll
+        fullScreenDiv.classList.remove('active');
+        fullScreenDiv.style.display = 'none';
+        fullScreenDiv.innerHTML = ''; // Clear the full screen div content, including the temporary canvas
+
+        // IMPORTANT: Re-render BOTH charts in their original positions
+        if (currentChannel && currentChannel.fields.length > 0) {
+            renderChart(myChart1, historicalChartCanvas1, chartFieldSelect1.value, 'line', 'myChart1');
+            renderChart(myChart2, historicalChartCanvas2, chartFieldSelect2.value, 'bar', 'myChart2');
+        }
+    };
+
+
+    if (fullScreenDiv.classList.contains('active')) {
+        // If we are already in full screen, and this function is called again (e.g., via the original button),
+        // it means we want to exit. Trigger the close button's click handler.
+        closeBtn.click();
+    } else {
+        // Enter full screen
+        body.style.overflow = 'hidden'; // Prevent body scroll
+        fullScreenDiv.classList.add('active');
+        fullScreenDiv.style.display = 'flex'; // Ensure flexbox properties are applied for canvas sizing
+
+        // Clear existing content except the close button to ensure a fresh canvas
+        while(fullScreenDiv.children.length > 1) { // Keep the close button (first child)
+            fullScreenDiv.removeChild(fullScreenDiv.lastChild);
+        }
+
+        // Create a *new* canvas element for the full screen view
+        const tempFullScreenCanvas = document.createElement('canvas');
+        tempFullScreenCanvas.id = 'tempFullScreenChart'; // Give it a unique ID
+        fullScreenDiv.appendChild(tempFullScreenCanvas);
+
+        // Crucial: A small delay can help the browser apply CSS and render the canvas
+        // before Chart.js tries to draw on it.
+        setTimeout(() => {
+            const ctxFullScreen = tempFullScreenCanvas.getContext('2d');
+            // Check if context is valid before creating chart
+            if (!ctxFullScreen) {
+                console.error("Failed to get 2D context for full screen canvas.");
+                return;
+            }
+
+            new Chart(ctxFullScreen, { // Create a NEW Chart instance for the full screen
+                type: chartType,
+                data: chartInstance.data, // Use the data from the original instance
+                options: {
+                    ...chartInstance.options, // Copy options
+                    responsive: true,
+                    maintainAspectRatio: false, // Let CSS handle sizing
+                    scales: {
+                      x: {
+                        title: {
+                          display: true,
+                          text: 'Time (IST)'
+                        },
+                        ticks: {
+                            autoSkip: true,
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                      },
+                      y: {
+                        title: {
+                          display: true,
+                          text: 'Value'
+                        },
+                        beginAtZero: true
+                      }
+                    },
+                    plugins: { // Ensure plugins are copied over as well
+                        tooltip: chartInstance.options.plugins.tooltip
+                    }
+                }
+            });
+        }, 50); // Small delay, e.g., 50ms
+    }
+  }
+
+  async function deleteChannel(channel_name, api_key) {
+    if (!confirm(`Are you sure you want to delete channel "${channel_name}" and ALL its data? This action cannot be undone.`)) return;
+
+    try {
+      const url = `${apiBase}/channels/${channel_name}?api_key=${encodeURIComponent(api_key)}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to delete channel: ${errorText}`);
+      }
+
+      alert(`Deleted channel "${channel_name}".`);
+      fetchChannels();
+      if (currentChannel?.channel_name === channel_name) closeChannelDetails();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  fetchChannels(); // Initial fetch of channels on page load
+</script>
+
+</body>
+</html>

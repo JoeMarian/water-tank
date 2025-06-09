@@ -1,0 +1,13 @@
+# Your DuckDNS domain (or a custom domain if you get one)
+# Caddy will automatically try to get a certificate for this domain.
+tankmanages.duckdns.org {
+    # Define a reverse proxy to your FastAPI server
+    reverse_proxy localhost:8000
+
+    # Optional: Enable Caddy's default HTTP -> HTTPS redirect
+    # This is usually automatic for standard ports, but good to be explicit
+    # The http:// part below is implicit by default if you use standard ports,
+    # but being explicit never hurts.
+    # Otherwise, Caddy will automatically handle this if it's served on 80/443
+    # You might not need this explicitly if you're port forwarding 80 to Caddy.
+}

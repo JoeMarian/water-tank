@@ -1,0 +1,102 @@
+# /Users/joemarian/water-tank/docker-compose.yml
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb_db
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+    volumes:
+      - mongodb_data:/data/db # Persist data
+    env_file: # Load .env variables for Mongo initialization
+      - ./.env
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto_broker
+    ports:
+      - "1883:1883" # MQTT
+      - "9001:9001" # MQTT over WebSockets
+    volumes:
+      # Optional: if you have a custom mosquitto.conf
+      # - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "true" # For easier testing without explicit config
+      # Optional: if you configure auth in mosquitto.conf
+      # MOSQUITTO_USERNAME: ${MQTT_USERNAME}
+      # MOSQUITTO_PASSWORD: ${MQTT_PASSWORD}
+    env_file: # Load .env variables for Mosquitto
+      - ./.env
+
+  fastapi_app:
+    build:
+      context: . # Build from the current directory (where Dockerfile is)
+      dockerfile: Dockerfile
+    container_name: fastapi_water_tank
+    ports:
+      - "8000:8000" # Expose FastAPI port to host
+    environment:
+      # --- OVERRIDE FOR DOCKER NETWORK ---
+      # This MONGO_URI uses the service name 'mongodb'
+      MONGO_URI: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DB_NAME}?authSource=admin
+      # This MQTT_BROKER_HOST uses the service name 'mosquitto_broker'
+      MQTT_BROKER_HOST: mosquitto_broker
+      # --- END OVERRIDE ---
+      FASTAPI_HOST: 0.0.0.0 # Bind FastAPI to all interfaces inside the container
+      FASTAPI_PORT: 8000
+      MQTT_BROKER_PORT: 1883
+      # Other MQTT variables will be loaded from .env via env_file
+    env_file: # Load all other variables from your .env file
+      - ./.env
+    depends_on:
+      - mongodb
+      - mosquitto
+    # --- CRITICAL CHANGE HERE: main.py is inside the 'app' folder ---
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # --- END CRITICAL CHANGE ---
+
+  coap_server:
+    build:
+      context: . # Build from the current directory (where Dockerfile is)
+      dockerfile: Dockerfile
+    container_name: coap_proxy_server
+    ports:
+      - "5684:5684/udp" # Expose CoAP UDP port to host
+    environment:
+      # This points to the FastAPI service *within* the Docker network
+      FASTAPI_HOST: fastapi_water_tank # Use FastAPI service name
+      FASTAPI_PORT: 8000
+    env_file: # Load all other variables from your .env file
+      - ./.env
+    depends_on:
+      - fastapi_app
+    command: python3 coap_server.py # Command to run your CoAP server
+
+  # NEW SERVICE: For simulating CoAP client interactions
+  simulation_client:
+    build:
+      context: . # Use the same Dockerfile as FastAPI and CoAP server
+      dockerfile: Dockerfile
+    container_name: coap_simulator
+    environment:
+      # IMPORTANT: Replace these with your actual channel name and API key
+      # obtained from creating a channel via http://localhost:8000/docs
+      SIM_CHANNEL_NAME: "your_actual_channel_name" # e.g., "my_water_tank"
+      SIM_API_KEY: "YOUR_API_KEY_HERE" # e.g., "XWHX1ZJA6Q8F"
+    depends_on:
+      - coap_server # Ensure the CoAP server is up before this client runs
+    command: python3 coap_simulation_client.py # Command to run your simulation script
+    restart: "no" # This container will exit after running the script once.
+    # If you want it to run continuously in a loop for continuous data:
+    # command: bash -c "while true; do python3 coap_simulation_client.py; sleep 60; done"
+    # This would run the script, wait 60 seconds, then run it again in a loop.
+
+volumes:
+  mongodb_data: # Define named volume for MongoDB data persistence
